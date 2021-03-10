@@ -203,12 +203,37 @@ void _test_free(void *const ptr, const char *file, const int line)
     free(block);
 }
 
+static void _fail_if_allocated_block_not_empty(const char *const test_name)
+{
+    ListNode *const block_list = get_allocated_blocks_list();
+    ListNode *node;
+    ListNode *node_tmp;
+    __uint32_t allocated_block_num = 0;
+
+    for (node = block_list->prev, node_tmp = node->prev;
+         node != block_list;
+         node = node_tmp, node_tmp = node->prev)
+    {
+        const MallocBlockInfo *const block_info = node->value;
+        allocated_block_num++;
+        list_remove(node);
+        printf("ERROR: leaked block allocated in %s: %d\n", block_info->location.file, block_info->location.line);
+        free(block_info->block);
+    }
+    if (0 != allocated_block_num)
+    {
+        printf("ERROR: %s leaked %d block(s)\n", test_name, allocated_block_num);
+        longjmp(*(_run_test_env_get()), 1);
+    }
+}
+
 int _run_tests(const UnitTest *const tests, const size_t number_of_tests)
 {
     __uint32_t index = 0;
     const UnitTest *test = NULL;
     __int8_t ret = 0;
     void *state = NULL;
+
     for (index = 0; index < number_of_tests; index++)
     {
         test = &tests[index];
@@ -217,7 +242,7 @@ int _run_tests(const UnitTest *const tests, const size_t number_of_tests)
         if (0 == ret)
         {
             test->function(&state);
-
+            _fail_if_allocated_block_not_empty(test->name);
             printf("%s: test completely successed\n", test->name);
         }
         else
