@@ -1,5 +1,5 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 PROJECT(HELLO)
-SET(SRC_LIST assert_test.c minicmockery.c)
+AUX_SOURCE_DIRECTORY(. SRC_LIST)
 add_definitions("-Wall -g")
 ADD_EXECUTABLE(hello ${SRC_LIST})
