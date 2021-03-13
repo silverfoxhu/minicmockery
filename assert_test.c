@@ -13,6 +13,13 @@ extern void _test_free(void *const ptr, const char *file, const int line);
 #define calloc(num, size) _test_calloc(num, size, __FILE__, __LINE__)
 #define free(ptr) _test_free(ptr, __FILE__, __LINE__)
 
+extern int square();
+
+int random()
+{
+    return (int)mock();
+}
+
 int add(int a, int b)
 {
     return a + b;
@@ -74,6 +81,17 @@ void buffer_underflow_test(void **state)
     buffer_underflow();
 }
 
+void mock_function_test(void **state)
+{
+    will_return(square, 10);
+    assert_int_equal(square(), 100);
+}
+
+void mock_function_test_fail(void **state)
+{
+    will_return(square, 10);
+    assert_int_equal(square(), 101);
+}
 int main(int argc, char *argv[])
 {
     const UnitTest tests[] = {
@@ -82,6 +100,8 @@ int main(int argc, char *argv[])
         unit_test(leak_memory_test),
         unit_test(buffer_overflow_test),
         unit_test(buffer_underflow_test),
+        unit_test(mock_function_test),
+        unit_test(mock_function_test_fail),
     };
     return run_tests(tests);
 }

@@ -18,6 +18,10 @@
 // Calculates the number of elements in an array.
 #define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))
 
+#define container_of(ptr, type, member) ({\
+const typeof( ((type *)0)->member ) *__mptr = (ptr); \
+(type *)( (char *)__mptr - offsetof(type,member) ); })
+
 typedef struct ListNode
 {
     const void *value;
@@ -42,6 +46,13 @@ typedef struct MallocBlockInfo
     ListNode node;           // Node within list of all allocated blocks.
 } MallocBlockInfo;
 
+typedef struct SymbolValue
+{
+    SourceLocation location;
+    const void *value;
+    ListNode node;
+} SymbolValue;
+
 typedef struct
 {
     jmp_buf run_test_env;
@@ -49,6 +60,8 @@ typedef struct
 
     // List of all currently allocated blocks.
     ListNode allocated_blocks;
+    // List of all function results
+    ListNode function_results;
 } minicmockery_entity_t;
 static minicmockery_entity_t minicmockery_entity;
 
@@ -139,6 +152,16 @@ static ListNode *get_allocated_blocks_list()
     return &minicmockery_entity.allocated_blocks;
 }
 
+static ListNode *get_function_results_list()
+{
+    if (NULL == minicmockery_entity.function_results.value)
+    {
+        list_initialize(&minicmockery_entity.function_results);
+        minicmockery_entity.function_results.value = (void *)1;
+    }
+    return &minicmockery_entity.function_results;
+}
+
 // Set a source location.
 static void set_source_location(SourceLocation *const location, const char *const file, const int line)
 {
@@ -181,10 +204,11 @@ void _test_free(void *const ptr, const char *file, const int line)
     MallocBlockInfo *block_info;
     block_info = (MallocBlockInfo *)(block - (MALLOC_GUARD_SIZE + sizeof(*block_info)));
     char *guards[2] = {block - MALLOC_GUARD_SIZE, block + block_info->size};
+    int corrupt_happened = 0;
     for (i = 0; i < ARRAY_LENGTH(guards); i++)
     {
         unsigned int j;
-        char *const guard = guards[i];
+        unsigned char *const guard = guards[i];
         for (j = 0; j < MALLOC_GUARD_SIZE; j++)
         {
             if (MALLOC_GUARD_PATTERN != guard[j])
@@ -193,7 +217,7 @@ void _test_free(void *const ptr, const char *file, const int line)
                        (size_t)ptr, block_info->size,
                        block_info->location.file, block_info->location.line,
                        (size_t)&guard[j]);
-                _fail(file, line);
+                corrupt_happened = 1;
             }
         }
     }
@@ -201,6 +225,10 @@ void _test_free(void *const ptr, const char *file, const int line)
     block = block_info->block;
     memset(block, MALLOC_FREE_PATTERN, block_info->allocated_size);
     free(block);
+    if (1 == corrupt_happened)
+    {
+        _fail(file, line);
+    }
 }
 
 static void _fail_if_allocated_block_not_empty(const char *const test_name)
@@ -225,6 +253,30 @@ static void _fail_if_allocated_block_not_empty(const char *const test_name)
         printf("ERROR: %s leaked %d block(s)\n", test_name, allocated_block_num);
         longjmp(*(_run_test_env_get()), 1);
     }
+}
+
+void _will_return(const char *const function_name, const char *const file, const int line, const void *const value)
+{
+    ListNode *function_results_list = get_function_results_list();
+    SymbolValue *const return_value = malloc(sizeof(*return_value));
+    return_value->value = value;
+    set_source_location(&return_value->location, file, line);
+    list_add(function_results_list, &(return_value->node));
+}
+
+void *_mock(const char *const function, const char *const file, const int line)
+{
+    ListNode *function_results_list = get_function_results_list();
+    ListNode *node;
+    for (node = function_results_list->prev; function_results_list != node->prev; node = node->prev)
+    { //do nothing};
+    }
+
+    SymbolValue *return_value = container_of(node, SymbolValue, node);
+    void *value = (void *)return_value->value;
+    list_remove(node);
+    free(return_value);
+    return value;
 }
 
 int _run_tests(const UnitTest *const tests, const size_t number_of_tests)
